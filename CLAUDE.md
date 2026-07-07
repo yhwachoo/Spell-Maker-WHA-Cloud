@@ -36,9 +36,10 @@ Construir un sistema completo alrededor de la magia de Witch Hat Atelier:
 
 ## Tarea prioritaria para esta sesión en la nube
 
-El usuario hizo **fork** de este repo: https://github.com/DaviAMSilva/wha-spell-maker
-(buscar el fork bajo la cuenta del usuario). Es un "spell maker" web (TypeScript/p5)
-para WHA, licencia **GPL v3** (mantener atribución si se copia algo).
+El usuario (GitHub: **Yhwachoo**) hizo fork de wha-spell-maker. Analizar su fork:
+https://github.com/Yhwachoo/wha-spell-maker (original: DaviAMSilva/wha-spell-maker).
+Es un "spell maker" web (TypeScript/p5) para WHA, licencia **GPL v3** (mantener
+atribución si se copia algo).
 
 **Analizar ese repo a fondo y proponer/implementar qué rescatar.** En una exploración
 preliminar ya se vio que contiene:
