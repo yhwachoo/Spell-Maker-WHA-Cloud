@@ -1,0 +1,8 @@
+# Witch Hat Atelier - Clasificador de signos
+# El entorno ya tiene torch (CPU), torchvision, numpy, pillow y scikit-learn.
+# Se listan con versiones minimas por reproducibilidad.
+torch>=2.2
+torchvision>=0.17
+numpy>=1.26
+pillow>=10.0
+scikit-learn>=1.4

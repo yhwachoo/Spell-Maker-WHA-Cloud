@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+
+# Datos derivados (se regeneran con los scripts)
+data/raw/
+data/refs_backup/
+data/annotations/
+data/symbols/
+data/signs_shots/
+data/_tmp*
+data/_synth*
+data/_demo*
+
+# Modelos entrenados (regenerables)
+models/
+
+# Empaquetados
+refs.zip

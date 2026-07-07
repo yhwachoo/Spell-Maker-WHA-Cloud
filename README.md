@@ -1,0 +1,116 @@
+# Witch Hat Atelier — Análisis de hechizos y signos
+
+Proyecto para **reconocer, descomponer y analizar** los sellos mágicos de Witch Hat
+Atelier. Tres capacidades:
+
+1. **Clasificar hechizos** — dada la imagen de un sello, predecir qué hechizo es
+   (`train.py` / `predict.py`).
+2. **Decodificar signos → vector** — detectar qué signos contiene un sello y calcular
+   la dirección/potencia resultante (`decode_seal.py` + motor de vectores).
+3. **Componer y analizar** — diseñar hechizos nuevos y predecir su comportamiento, o
+   anotar los del catálogo (`spell_composer.py`, `spell_annotations.py`, `analyze_seal.py`).
+
+## Estado actual
+- **Clasificador**: 37 hechizos del catálogo, `models/best.pt`. Val acc ~74% (ver honestidad abajo).
+- **Vocabulario de signos**: 24 signos dibujados en `data/signs/` (Column, Pull, Crush, Dirección, Convergencia...).
+- **Etiquetas corregidas**: se detectó y corrigió un desfase que afectaba ~16 clases del catálogo (backup en `data/refs_backup/`).
+
+> ⚠️ **Honestidad estadística.** Cada clase tiene ~1 dibujo real, expandido con variantes
+> sintéticas. El val acc es **optimista** (train y val derivan del mismo dibujo). Para
+> evaluación real hacen falta **2–3 recortes distintos** por clase.
+
+> 🧭 **Lore: no se voltea.** Espejar/invertir un signo cambia su significado, así que los
+> aumentos no voltean ni rotan fuerte por defecto (`--allow-flip` para forzarlo).
+
+---
+
+## Mapa de archivos
+
+| Archivo | Qué hace |
+|---|---|
+| **Clasificador** | |
+| `train.py` | Entrena el clasificador (GPU/CPU auto, AMP, label smoothing, matriz de confusión). |
+| `predict.py` | Predice el hechizo de una imagen o carpeta. |
+| `train_colab.ipynb` | Notebook autocontenido para Colab con GPU. |
+| `prepare_data.py` | Crea carpetas y reporta conteos por clase. |
+| `augment_offline.py` | Expande pocos recortes en variantes sintéticas (`refs/` → `raw/`). |
+| `make_smoke_data.py` | Datos sintéticos para probar el pipeline. |
+| **Datos / recorte** | |
+| `decompose_sheet.py` | Recorta los sellos de una hoja-catálogo. |
+| `crop_wiki_sign.py` | Recorta el glifo (rojo) de un screenshot de la wiki → `data/signs/`. |
+| **Motor de vectores y análisis** | |
+| `signs.py` | Catálogo de signos + **vectores direccionales** + `resultant_vector()`. |
+| `vector_analysis.py` | Demos y CLI del motor de vectores. |
+| `decode_seal.py` | Detecta signos en un sello (template matching rotacional) → vector. |
+| `spell_composer.py` | Diseña un hechizo (signos+posición) → dibuja + predice + describe. |
+| `spell_annotations.py` | Anotación manual asistida del catálogo + análisis fiable. |
+| `analyze_seal.py` | Estima potencia/dirección/simetría de un sello (heurístico, sin entrenar). |
+| `analyze_symbols.py` | Descompone sellos en símbolos y busca coincidencias entre hechizos. |
+| `MECANICA.md` | Investigación: cómo tamaño/pesos/orientación determinan el hechizo. |
+| `data/refs/` | 1 recorte semilla por hechizo (entrada de `augment_offline`). |
+| `data/signs/` | Vocabulario de signos (plantillas para `decode_seal`). |
+| `models/best.pt` | Modelo entrenado. |
+
+---
+
+## Flujos de uso
+
+### Entrenar el clasificador
+```
+python augment_offline.py --per-class 40 --clean       # refs/ -> raw/
+python train.py --arch mobilenet_v3_small --epochs 15  # CPU
+python train.py --arch resnet18 --epochs 40            # más capacidad (ideal en Colab/GPU)
+python predict.py data/refs/nubes/nubes.png
+```
+En **Colab** (GPU gratis): sube `train_colab.ipynb`, activa GPU, ejecuta las celdas.
+
+### Decodificar un sello en signos + vector
+```
+python decode_seal.py --validate          # fiabilidad del matcher (≈76% top-1 / 86% top-3)
+python decode_seal.py --seal lanzallamas  # decodifica un sello del catálogo
+```
+> Nota: a la resolución del catálogo (~30 px/signo) el matcher es **poco fiable**
+> (brecha de dominio). Funciona bien con sellos limpios (estilo plantilla).
+
+### Componer un hechizo nuevo
+```
+python spell_composer.py --compose "column:90:1.5,column:90:1.5,direccion:90:1.2" --sigil fire_glyph --out hechizo.png
+```
+Formato `slug:ángulo:tamaño` (ángulo 0=derecha, 90=arriba). Dibuja el sello, predice el
+vector y describe el efecto combinado.
+
+### Anotar y analizar el catálogo (fiable)
+```
+python spell_annotations.py            # reconstruye + analiza los hechizos anotados a mano
+```
+Separa la **detección** (débil a baja res) del **análisis** (fiable vía motor de vectores).
+
+### Analizar potencia/dirección sin entrenar
+```
+python analyze_seal.py data/refs/nubes/ --annotate
+```
+
+---
+
+## Pipeline de datos (de imágenes a clases)
+
+1. **Hoja-catálogo** → `python decompose_sheet.py hoja.png --montage` → recortes en `data/refs/_unsorted/`.
+2. **Renombrar** cada recorte a su clase (`data/refs/<hechizo>/<hechizo>.png`). ⚠️ Verifica
+   contra los captions: un desfase aquí corrompe todo el dataset (ya pasó una vez).
+3. **Signos de la wiki** → guarda screenshots y `python crop_wiki_sign.py carpeta/` → `data/signs/`.
+4. **Expandir** → `python augment_offline.py --per-class 40 --clean`.
+
+---
+
+## Mecánica del lore
+Ver **`MECANICA.md`**: tamaño → potencia, pesos/simetría → desvío, orientación → dirección,
+y el sistema de vectores implementado en `signs.py`. Idea central: *los signos son fuerzas
+que se equilibran dentro del anillo*.
+
+## Limitaciones honestas y siguientes pasos
+- **1 dibujo por clase** → val acc optimista. Conseguir 2–3 recortes distintos por clase
+  (p. ej. recortando los pergaminos de la hoja de compilación) es lo que más sube la precisión real.
+- **Detección de signos a baja resolución**: poco fiable; el camino es plantillas en estilo
+  manga o sellos de mayor resolución.
+- Posibles extensiones: detección (localizar varios signos), exportar a ONNX, clasificador
+  de signos independiente (`data/signs/`).
