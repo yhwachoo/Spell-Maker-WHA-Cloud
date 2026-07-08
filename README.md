@@ -151,16 +151,30 @@ La alternativa es un **clasificador entrenado** sobre rasgos rotacionalmente inv
 python train_sign_clf.py            # entrena y evalúa -> models/sign_clf.joblib
 ```
 
-Resultados honestos (sobre las **mismas entradas degradadas**, escenario del catálogo):
+El entrenamiento usa **dos fuentes**: (1) plantillas aisladas aumentadas+degradadas y
+(2) **recortes extraídos de sellos sintéticos completos** (`render_spell` como fábrica de
+datos), pasados por el mismo pipeline de extracción del decodificador. Así el clasificador
+aprende cómo se ven los signos *tras* la extracción (residuo del anillo, roce de vecinos,
+formas parciales), no plantillas idealizadas.
+
+**Robustez a degradación** (recorte de signo aislado):
 
 | Método | top-1 | top-3 |
 |---|---|---|
 | Template matching (IoU) | 32% | 49% |
-| **Clasificador entrenado** | **99%** | **99.8%** |
+| Clasificador (solo plantillas) | 99% | 99.8% |
 
-> Matiz honesto: ese 99% es robustez a la *degradación* de las plantillas conocidas. La
-> generalización a un estilo de dibujo **nuevo** (cross-domain) es 44–60% top-1 — aún así
-> por encima del ~37% del matcher. Nunca se voltea en el aumento (espejar cambia el signo).
+**End-to-end** (métrica real: decodificar un sello completo, extraer→clasificar):
+
+| Entrenamiento | signos correctos |
+|---|---|
+| Solo plantillas aisladas | 48.6% |
+| **Plantillas + sellos sintéticos** | **82.7%** |
+
+> Matiz honesto: el end-to-end se mide sobre sellos sintéticos degradados (estilo limpio
+> del editor). La generalización a un dibujo a mano **nuevo** (cross-domain) es 44–60%.
+> Nunca se voltea en el aumento (espejar cambia el significado del signo). Cerrar el hueco
+> con el trazo manga real es el siguiente paso.
 
 El clasificador está integrado en `decode_seal.py` (`--method clf`, con fallback a
 template) y es el método por defecto en la app web.
