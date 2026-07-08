@@ -46,9 +46,14 @@ Atelier. Tres capacidades:
 | `spell_annotations.py` | Anotación manual asistida del catálogo + análisis fiable. |
 | `analyze_seal.py` | Estima potencia/dirección/simetría de un sello (heurístico, sin entrenar). |
 | `analyze_symbols.py` | Descompone sellos en símbolos y busca coincidencias entre hechizos. |
+| **Integración con wha-spell-maker (fork)** | |
+| `import_wha_symbols.py` | Importa los símbolos limpios del fork (DaviAMSilva, GPL v3) como plantillas + mapeo nombre→slug. |
+| `render_spell.py` | Renderiza hechizos en formato `spell.json` (porta `sketch.ts`); valida contra los ejemplos y **genera datos sintéticos anotados**. |
+| `examples_vectors.py` | Puente `spell.json` → motor de vectores; valida el motor contra los hechizos canon del fork. |
 | `MECANICA.md` | Investigación: cómo tamaño/pesos/orientación determinan el hechizo. |
 | `data/refs/` | 1 recorte semilla por hechizo (entrada de `augment_offline`). |
 | `data/signs/` | Vocabulario de signos (plantillas para `decode_seal`). |
+| `data/wha_symbols/` | Símbolos limpios del fork (44 signos, 31 sigilos, shapes, forbiddens, glifos) — GPL v3, ver `ATTRIBUTION.md`. |
 | `models/best.pt` | Modelo entrenado. |
 
 ---
@@ -101,6 +106,40 @@ python analyze_seal.py data/refs/nubes/ --annotate
 4. **Expandir** → `python augment_offline.py --per-class 40 --clean`.
 
 ---
+
+## Integración con wha-spell-maker (fork de DaviAMSilva)
+
+Se analizó el fork [Yhwachoo/Spell-Maker-WHA](https://github.com/Yhwachoo/Spell-Maker-WHA)
+(original de DaviAMSilva, **GPL v3**). Es un editor web que hace lo **inverso** a
+nosotros: dado un hechizo como datos (`spell.json`) lo **dibuja** con p5. Se rescató:
+
+```
+python import_wha_symbols.py            # importa symbols/ -> data/wha_symbols/ (+mapeo)
+python decode_seal.py --validate        # matcher con multi-plantilla + validación cruzada
+python render_spell.py --validate-examples --examples-dir <fork>/examples
+python render_spell.py --synth 2000 --synth-out data/_synth   # datos sintéticos anotados
+python examples_vectors.py --examples-dir <fork>/examples     # motor de vectores vs canon
+```
+
+Resultados:
+- **Símbolos**: 44 signos del fork mapeados a nuestros slugs (33 coinciden, 11 nuevos:
+  Coil, Conceal, Empower, Envelop, Focus, Project, Reflect, Solidify, Stability,
+  Stillness, Stretch) + 31 sigilos limpios. `decode_seal` ahora admite **varias
+  plantillas por slug** (dibujo a mano + limpia del fork) y canoniza sinónimos
+  ES/EN (Enlarge=Agrandar…).
+- **Matcher**: baseline intacto (76% top-1 / 86% top-3). La transferencia de dominio
+  limpio↔garabato es **~37%**, y el techo limpio-vs-limpio es **~73%** → el template
+  matching está cerca de su límite; el camino es un **detector entrenado**.
+- **Renderizador**: reproduce los ejemplos canon casi pixel-perfect (Sylph Shoes IoU
+  0.79, Crystal Petals 0.75; los bajos son por imágenes *custom* que no tenemos).
+  Habilita generar sellos sintéticos con anotación perfecta (slug/posición/tamaño/
+  rotación de cada signo) para entrenar detección.
+- **Motor de vectores**: validado contra los hechizos canon del fork — todos los
+  sellos simétricos dan deriva neta ≈0, distinguiendo dispersión-radial (Crystal
+  Petals) de convergencia-inward (Sylph Shoes), coherente con el lore.
+
+> GPL v3: los símbolos en `data/wha_symbols/` conservan `LICENSE` y atribución a
+> DaviAMSilva (`ATTRIBUTION.md`). Los símbolos de la magia son de Kamome Shirahama.
 
 ## Mecánica del lore
 Ver **`MECANICA.md`**: tamaño → potencia, pesos/simetría → desvío, orientación → dirección,

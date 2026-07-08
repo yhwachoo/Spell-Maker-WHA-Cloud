@@ -27,12 +27,14 @@ import numpy as np
 from PIL import Image
 from scipy import ndimage
 
-from signs import resultant_vector, display_name
+from signs import resultant_vector, display_name, canonical_slug
 from analyze_symbols import otsu, extract_symbols
+from import_wha_symbols import build_name_index, normalize
 
 ROOT = Path(__file__).parent
 SIGNS_DIR = ROOT / "data" / "signs"
 REFS_DIR = ROOT / "data" / "refs"
+WHA_SIGNS_DIR = ROOT / "data" / "wha_symbols" / "signs"
 
 SHAPE = 40           # tamano de la forma normalizada
 CANVAS = 56          # lienzo (con margen para rotar sin cortar)
@@ -46,7 +48,14 @@ MIN_IOU = 0.18       # IoU minimo para aceptar un match en decode
 # ---------------------------------------------------------------------------
 
 def load_binary(path):
-    arr = np.asarray(Image.open(path).convert("L"))
+    im = Image.open(path)
+    if im.mode in ("RGBA", "LA", "P"):
+        # Aplana el alfa sobre blanco (los PNG del fork son trazo/transparente).
+        im = im.convert("RGBA")
+        bg = Image.new("RGBA", im.size, (255, 255, 255, 255))
+        bg.alpha_composite(im)
+        im = bg
+    arr = np.asarray(im.convert("L"))
     return arr <= otsu(arr)
 
 
@@ -85,27 +94,52 @@ def iou(a, b):
 # Vocabulario y matcher
 # ---------------------------------------------------------------------------
 
-def load_vocabulary():
-    """Devuelve dict {slug: dilated_norm_img}."""
-    vocab = {}
-    for d in sorted(p for p in SIGNS_DIR.iterdir() if p.is_dir()):
-        png = d / f"{d.name}.png"
-        if not png.exists():
-            cand = list(d.glob("*.png"))
-            if not cand:
-                continue
-            png = cand[0]
+def load_vocabulary(include_wha=True, include_ours=True, canon=True):
+    """Devuelve dict {slug: [dilated_norm_img, ...]} (varias plantillas por slug).
+
+    Combina nuestras plantillas dibujadas a mano (data/signs/) con las plantillas
+    limpias del fork (data/wha_symbols/signs/), mapeadas al mismo slug via nombre
+    canonico. Los signos del fork sin equivalente en signs.py entran como slug
+    nuevo (nombre normalizado). El matcher toma el MEJOR parecido entre todas las
+    plantillas de un slug, asi que sumar plantillas solo puede ayudar la cobertura.
+
+    canon=True fusiona los sinonimos ingles/espanol (Enlarge==Agrandar, etc.) en un
+    solo slug canonico, evitando clases duplicadas que compiten entre si.
+    """
+    vocab: dict = {}
+
+    def add(slug, png):
+        if canon:
+            slug = canonical_slug(slug)
         nb = norm_img(load_binary(png))
         if nb is not None:
-            vocab[d.name] = dilate(nb)
+            vocab.setdefault(slug, []).append(dilate(nb))
+
+    if include_ours:
+        for d in sorted(p for p in SIGNS_DIR.iterdir() if p.is_dir()):
+            png = d / f"{d.name}.png"
+            if not png.exists():
+                cand = list(d.glob("*.png"))
+                if not cand:
+                    continue
+                png = cand[0]
+            add(d.name, png)
+
+    if include_wha and WHA_SIGNS_DIR.exists():
+        idx = build_name_index()
+        for png in sorted(WHA_SIGNS_DIR.glob("*.png")):
+            slug = idx.get(normalize(png.stem)) or normalize(png.stem).replace(" ", "_")
+            add(slug, png)
+
     return vocab
 
 
 def match(query_bin, vocab, topk=3):
     """Matchea por IoU rotacional + similitud de densidad. Devuelve [(slug, score, conf), ...].
 
-    El factor de densidad penaliza plantillas mucho mas (o menos) densas que el
-    simbolo consultado, reduciendo el sesgo hacia signos densos (Marioneta, Ojo).
+    Cada slug puede tener varias plantillas; se toma la mejor puntuacion sobre todas
+    (plantillas x rotaciones). El factor de densidad penaliza plantillas mucho mas (o
+    menos) densas que el simbolo consultado, reduciendo el sesgo hacia signos densos.
     """
     q = norm_img(query_bin)
     if q is None:
@@ -113,11 +147,14 @@ def match(query_bin, vocab, topk=3):
     q_rots = [dilate(rot(q, a)) for a in MATCH_ANGLES]
     q_den = float(q_rots[0].mean())
     scores = {}
-    for slug, tmpl in vocab.items():
-        best = max(iou(qr, tmpl) for qr in q_rots)
-        t_den = float(tmpl.mean())
-        dens_sim = min(q_den, t_den) / max(q_den, t_den, 1e-9)
-        scores[slug] = best * (0.4 + 0.6 * dens_sim)   # densidad pesa 60%
+    for slug, tmpls in vocab.items():
+        best = 0.0
+        for tmpl in tmpls:
+            iou_best = max(iou(qr, tmpl) for qr in q_rots)
+            t_den = float(tmpl.mean())
+            dens_sim = min(q_den, t_den) / max(q_den, t_den, 1e-9)
+            best = max(best, iou_best * (0.4 + 0.6 * dens_sim))   # densidad pesa 60%
+        scores[slug] = best
     ranked = sorted(scores.items(), key=lambda kv: -kv[1])[:topk]
     tot = sum(s for _, s in ranked) + 1e-9
     return [(slug, s, s / tot) for slug, s in ranked]
@@ -127,32 +164,91 @@ def match(query_bin, vocab, topk=3):
 # Validacion
 # ---------------------------------------------------------------------------
 
-def validate(angles=(0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330)):
-    vocab = load_vocabulary()
-    slugs = list(vocab.keys())
-    print(f"Vocabulario: {len(slugs)} signos\n")
+def _query_sources(which):
+    """Devuelve [(slug, base_binary), ...] para usar como consultas de validacion.
+
+    which='ours' -> plantillas dibujadas a mano (data/signs)
+    which='wha'  -> plantillas limpias del fork (data/wha_symbols/signs)
+    """
+    out = []
+    if which == "ours":
+        for d in sorted(p for p in SIGNS_DIR.iterdir() if p.is_dir()):
+            png = d / f"{d.name}.png"
+            if not png.exists():
+                cand = list(d.glob("*.png"))
+                if not cand:
+                    continue
+                png = cand[0]
+            out.append((d.name, load_binary(png)))
+    elif which == "wha":
+        idx = build_name_index()
+        for png in sorted(WHA_SIGNS_DIR.glob("*.png")):
+            slug = idx.get(normalize(png.stem)) or normalize(png.stem).replace(" ", "_")
+            out.append((slug, load_binary(png)))
+    return out
+
+
+def _run_validation(queries, vocab,
+                    angles=(0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330)):
     total = correct = top3 = 0
     confusions = {}
-    for slug in slugs:
-        base = load_binary(SIGNS_DIR / slug / f"{slug}.png")
+    for slug, base in queries:
+        slug = canonical_slug(slug)
+        if slug not in vocab:
+            continue
         for ang in angles:
             test = ndimage.rotate(base.astype(float), ang, reshape=True, order=1) >= 0.5
             res = match(test, vocab, topk=3)
             if not res:
                 continue
             total += 1
-            names = [r[0] for r in res]
+            names = [canonical_slug(r[0]) for r in res]
             if names[0] == slug:
                 correct += 1
             else:
                 confusions[(slug, names[0])] = confusions.get((slug, names[0]), 0) + 1
             if slug in names:
                 top3 += 1
-    print(f"Precision top-1: {correct}/{total} = {100*correct/max(total,1):.1f}%")
-    print(f"Precision top-3: {top3}/{total} = {100*top3/max(total,1):.1f}%")
-    print("\nConfusiones mas comunes (real -> predicho):")
-    for (a, b), c in sorted(confusions.items(), key=lambda kv: -kv[1])[:12]:
-        print(f"  {display_name(a):<20} -> {display_name(b):<20} x{c}")
+    return total, correct, top3, confusions
+
+
+def _print_result(title, total, correct, top3, confusions, n_conf=10):
+    print(f"\n--- {title} ---")
+    print(f"  Precision top-1: {correct}/{total} = {100*correct/max(total,1):.1f}%")
+    print(f"  Precision top-3: {top3}/{total} = {100*top3/max(total,1):.1f}%")
+    if confusions:
+        print("  Confusiones (real -> predicho):")
+        for (a, b), c in sorted(confusions.items(), key=lambda kv: -kv[1])[:n_conf]:
+            print(f"    {display_name(a):<20} -> {display_name(b):<20} x{c}")
+
+
+def validate():
+    """Compara la fiabilidad del matcher antes/despues de sumar las plantillas del fork."""
+    vocab_ours = load_vocabulary(include_wha=False)
+    vocab_all = load_vocabulary(include_wha=True)
+    q_ours = _query_sources("ours")
+    q_wha = _query_sources("wha") if WHA_SIGNS_DIR.exists() else []
+
+    print(f"Vocabulario base (solo nuestro): {len(vocab_ours)} slugs")
+    print(f"Vocabulario ampliado (+fork):    {len(vocab_all)} slugs")
+
+    # 1) BASELINE: consultas nuestras vs vocabulario nuestro (lo que reportaba antes)
+    r = _run_validation(q_ours, vocab_ours)
+    _print_result("BASELINE  (query: nuestro | vocab: nuestro)", *r)
+
+    if q_wha:
+        # 2) CROSS-DOMAIN: consulta = plantilla limpia del fork, vocab = dibujos a mano.
+        #    Mide si el matcher reconoce un signo limpio con solo el garabato como referencia.
+        r = _run_validation(q_wha, vocab_ours)
+        _print_result("CROSS  (query: fork | vocab: nuestro)  <- transferencia de dominio", *r)
+
+        # 3) CROSS inverso: consulta = garabato, vocab = plantillas limpias del fork.
+        r = _run_validation(q_ours, vocab_all)
+        _print_result("AMPLIADO  (query: nuestro | vocab: nuestro+fork)", *r)
+
+        # 4) Self-consistencia del set limpio del fork (techo del matcher con buen line-art).
+        r = _run_validation(q_wha, vocab_all)
+        _print_result("FORK-SELF  (query: fork | vocab: nuestro+fork)", *r)
 
 
 # ---------------------------------------------------------------------------

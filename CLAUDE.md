@@ -34,6 +34,25 @@ Construir un sistema completo alrededor de la magia de Witch Hat Atelier:
 - **spell_annotations.py**: anotación manual asistida (separa detección débil de
   análisis fiable).
 
+## Estado de la integración con el fork (hecho en la nube)
+
+La tarea prioritaria de abajo **ya se ejecutó**. Resumen de lo implementado:
+
+- `import_wha_symbols.py` → importó `symbols/` del fork a `data/wha_symbols/`
+  (verbatim, con `LICENSE` + `ATTRIBUTION.md`). 44 signos (33 mapeados a slugs
+  existentes, 11 nuevos), 31 sigilos, shapes, forbiddens y glifos.
+- `decode_seal.py` → ahora multi-plantilla por slug + canonización de sinónimos
+  (ver `SYNONYM_GROUPS` en `signs.py`) + validación cruzada de dominio. Baseline
+  intacto 76%/86%; cross-domain limpio↔garabato ~37%; techo limpio ~73%
+  (→ template matching cerca del límite; siguiente paso real = detector entrenado).
+- `render_spell.py` → porta la geometría de `sketch.ts`; reproduce los ejemplos
+  canon casi pixel-perfect y **genera datos sintéticos anotados** (`--synth`).
+- `examples_vectors.py` → puente `spell.json` → `signs.resultant_vector`; el motor
+  da resultados coherentes con el lore en los 4 ejemplos canon.
+
+Siguiente paso natural (no hecho aún): entrenar un detector de signos con los datos
+sintéticos de `render_spell.py --synth` para superar el techo del template matching.
+
 ## Tarea prioritaria para esta sesión en la nube
 
 El usuario (GitHub: **Yhwachoo**) hizo fork de wha-spell-maker. Analizar su fork:

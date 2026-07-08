@@ -659,6 +659,35 @@ SIGNS: List[Dict[str, Any]] = [
 ]
 
 # ---------------------------------------------------------------------------
+# Sinonimos: el mismo signo aparece con slug en ingles y en espanol.
+# Se agrupan para no contarlos como clases distintas (p. ej. al validar el
+# matcher o al fusionar plantillas). El primero de cada grupo es el canonico.
+# ---------------------------------------------------------------------------
+SYNONYM_GROUPS: List[Tuple[str, ...]] = [
+    ("enlarge", "agrandar"),
+    ("diamond", "diamante"),
+    ("window", "ventana"),
+    ("crosshair", "mira"),
+    ("eye", "ojo"),
+    ("collection", "recopilacion"),
+    ("rain", "lluvia"),
+    ("weave", "tejer"),
+    ("puppet", "marioneta_bailarina"),
+    ("repeticion", "repetition"),
+]
+
+_CANON = {}
+for _grp in SYNONYM_GROUPS:
+    for _s in _grp:
+        _CANON[_s] = _grp[0]
+
+
+def canonical_slug(slug: str) -> str:
+    """Devuelve el slug canonico (ingles) si el signo tiene sinonimos."""
+    return _CANON.get(slug, slug)
+
+
+# ---------------------------------------------------------------------------
 # Mapas de acceso rápido
 # ---------------------------------------------------------------------------
 SLUG_TO_NAME   = {s["slug"]: s["name"]      for s in SIGNS}
