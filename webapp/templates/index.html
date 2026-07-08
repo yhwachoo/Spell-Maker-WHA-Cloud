@@ -58,6 +58,11 @@
       <input type="file" id="file" accept="image/*">
       <label>3 · Dibujar el sello</label>
       <canvas id="pad" width="320" height="320"></canvas>
+      <label style="margin-top:12px">Método de reconocimiento</label>
+      <select id="method">
+        <option value="clf">Clasificador entrenado (robusto a baja resolución)</option>
+        <option value="template">Template matching (IoU rotacional)</option>
+      </select>
       <div class="row" style="margin-top:8px">
         <button id="btn-decode">Reconocer</button>
         <button class="ghost" id="btn-clear">Limpiar</button>
@@ -144,20 +149,20 @@ function renderDecode(d){
   $('#out-img').src = d.overlay;
   const v = d.vector;
   $('#out-vec').innerHTML = `<b>Vector:</b> ${v.compass}<br><b>Magnitud:</b> ${v.magnitude} · <b>Ángulo:</b> ${v.direction_deg}°<br>`+
-    `<span class="muted">radial:${v.is_radial} · inward:${v.has_inward} · outward:${v.has_outward} · símbolos extraídos:${d.n_extracted}</span>`;
+    `<span class="muted">método:${d.method} · radial:${v.is_radial} · inward:${v.has_inward} · outward:${v.has_outward} · símbolos extraídos:${d.n_extracted}</span>`;
   const ul=$('#out-signs'); ul.innerHTML='';
   d.symbols.forEach(s=> ul.insertAdjacentHTML('beforeend',
-    `<li><span><b>${s.name}</b> · pos ${s.angle}° · tam ${s.size} · IoU ${s.iou}<br><span class="alts">alt: ${s.alts.join(', ')}</span></span></li>`));
+    `<li><span><b>${s.name}</b> · pos ${s.angle}° · tam ${s.size} · conf ${s.iou}<br><span class="alts">alt: ${s.alts.join(', ')}</span></span></li>`));
   if(!d.symbols.length) ul.innerHTML='<li class="muted">ningún signo superó el umbral</li>';
   $('#out-desc').textContent = d.description;
 }
 $('#btn-decode').onclick = async () => {
   $('#out-desc').textContent='Reconociendo…';
-  const cat=$('#catalog').value, file=$('#file').files[0];
+  const cat=$('#catalog').value, file=$('#file').files[0], meth=$('#method').value;
   let resp;
-  if(file){ const fd=new FormData(); fd.append('file',file); resp=await fetch('/api/decode',{method:'POST',body:fd}); }
-  else if(cat){ resp=await fetch('/api/decode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({catalog:cat})}); }
-  else { resp=await fetch('/api/decode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dataurl:pad.toDataURL()})}); }
+  if(file){ const fd=new FormData(); fd.append('file',file); fd.append('method',meth); resp=await fetch('/api/decode',{method:'POST',body:fd}); }
+  else if(cat){ resp=await fetch('/api/decode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({catalog:cat,method:meth})}); }
+  else { resp=await fetch('/api/decode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dataurl:pad.toDataURL(),method:meth})}); }
   renderDecode(await resp.json());
 };
 

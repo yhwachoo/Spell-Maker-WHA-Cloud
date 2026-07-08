@@ -30,7 +30,7 @@ sys.path.insert(0, str(ROOT))
 
 import numpy as np  # noqa: E402
 from analyze_symbols import extract_symbols  # noqa: E402
-from decode_seal import load_vocabulary, match, MIN_IOU  # noqa: E402
+from decode_seal import load_vocabulary, match, match_clf, load_classifier, MIN_IOU  # noqa: E402
 from signs import resultant_vector, display_name, SLUG_TO_INFO  # noqa: E402
 from spell_composer import describe_spell  # noqa: E402
 from render_spell import render_spell  # noqa: E402
@@ -61,8 +61,14 @@ def b64_to_img(data_url: str) -> Image.Image:
     return Image.open(io.BytesIO(raw)).convert("RGBA")
 
 
-def decode_image(pil_img: Image.Image, max_symbols=12):
-    """Extrae simbolos, los matchea y calcula el vector. Devuelve dict serializable."""
+def decode_image(pil_img: Image.Image, max_symbols=12, method="clf"):
+    """Extrae simbolos, los matchea y calcula el vector. Devuelve dict serializable.
+
+    method: 'clf' (clasificador entrenado, robusto a degradacion) o 'template'
+    (IoU rotacional). Si 'clf' no esta disponible, cae a 'template'.
+    """
+    clf_model = load_classifier() if method == "clf" else None
+    used_method = "clf" if clf_model else "template"
     # Aplana sobre blanco y guarda a un buffer que extract_symbols pueda abrir.
     bg = Image.new("RGBA", pil_img.size, (255, 255, 255, 255))
     bg.alpha_composite(pil_img)
@@ -79,9 +85,13 @@ def decode_image(pil_img: Image.Image, max_symbols=12):
 
     detected = []
     med = np.median([c["area"] for c in comps]) if comps else 1.0
+    min_conf = 0.12 if used_method == "clf" else MIN_IOU
     for c in comps:
-        res = match(c["bin"], VOCAB, topk=3)
-        if not res or res[0][1] < MIN_IOU:
+        if used_method == "clf":
+            res = match_clf(c["bin"], clf_model, topk=3)
+        else:
+            res = match(c["bin"], VOCAB, topk=3)
+        if not res or res[0][1] < min_conf:
             continue
         slug, sc, conf = res[0]
         x0, y0, x1, y1 = c["bbox"]
@@ -104,6 +114,7 @@ def decode_image(pil_img: Image.Image, max_symbols=12):
         "n_extracted": len(comps),
         "vector": vector,
         "description": text,
+        "method": used_method,
     }
 
 
@@ -160,7 +171,8 @@ def api_decode():
                 img = b64_to_img(data["dataurl"])
             else:
                 return jsonify({"error": "sin imagen"}), 400
-        return jsonify(decode_image(img))
+        method = request.form.get("method") or (request.get_json(silent=True) or {}).get("method") or "clf"
+        return jsonify(decode_image(img, method=method))
     except Exception as e:  # noqa: BLE001
         return jsonify({"error": str(e)}), 500
 

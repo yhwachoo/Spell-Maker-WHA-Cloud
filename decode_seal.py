@@ -134,6 +134,32 @@ def load_vocabulary(include_wha=True, include_ours=True, canon=True):
     return vocab
 
 
+_CLF_MODEL = None
+
+
+def load_classifier():
+    """Carga (una vez) el clasificador entrenado models/sign_clf.joblib, o None."""
+    global _CLF_MODEL
+    if _CLF_MODEL is None:
+        p = ROOT / "models" / "sign_clf.joblib"
+        if p.exists():
+            import joblib
+            _CLF_MODEL = joblib.load(p)
+        else:
+            _CLF_MODEL = False
+    return _CLF_MODEL or None
+
+
+def match_clf(query_bin, model, topk=3):
+    """Matchea con el clasificador entrenado (robusto a degradacion). [(slug, proba, conf)]."""
+    from sign_features import features
+    f = features(np.asarray(query_bin, bool)).reshape(1, -1)
+    proba = model["clf"].predict_proba(model["scaler"].transform(f))[0]
+    classes = np.asarray(model["classes"])
+    order = np.argsort(-proba)[:topk]
+    return [(classes[i], float(proba[i]), float(proba[i])) for i in order]
+
+
 def match(query_bin, vocab, topk=3):
     """Matchea por IoU rotacional + similitud de densidad. Devuelve [(slug, score, conf), ...].
 
@@ -255,7 +281,13 @@ def validate():
 # Decodificar
 # ---------------------------------------------------------------------------
 
-def decode_seal(seal_path, vocab, max_symbols=10, verbose=True):
+def decode_seal(seal_path, vocab, max_symbols=10, verbose=True, method="template"):
+    """method: 'template' (IoU rotacional) o 'clf' (clasificador entrenado,
+    robusto a degradacion). 'clf' cae a 'template' si no hay modelo entrenado."""
+    clf_model = load_classifier() if method == "clf" else None
+    use_clf = clf_model is not None
+    min_conf = 0.12 if use_clf else MIN_IOU
+
     comps, ring = extract_symbols(seal_path, min_area=12, max_comp=max_symbols)
     if not comps:
         if verbose:
@@ -264,8 +296,8 @@ def decode_seal(seal_path, vocab, max_symbols=10, verbose=True):
     med = np.median([c["area"] for c in comps])
     detected = []
     for c in comps:
-        res = match(c["bin"], vocab, topk=3)
-        if not res or res[0][1] < MIN_IOU:
+        res = match_clf(c["bin"], clf_model, topk=3) if use_clf else match(c["bin"], vocab, topk=3)
+        if not res or res[0][1] < min_conf:
             continue
         slug, sc, conf = res[0]
         detected.append({
@@ -274,11 +306,12 @@ def decode_seal(seal_path, vocab, max_symbols=10, verbose=True):
             "iou": sc, "alts": [r[0] for r in res[1:]],
         })
     if verbose:
-        print(f"  Simbolos extraidos: {len(comps)} | matcheados (IoU>={MIN_IOU}): {len(detected)}")
+        tag = "clf" if use_clf else "template"
+        print(f"  Simbolos extraidos: {len(comps)} | matcheados ({tag}): {len(detected)}")
         for dd in sorted(detected, key=lambda x: -x["size"]):
             print(f"    {display_name(dd['slug']):<18} "
                   f"pos={dd['angle']:>6.1f}deg size={dd['size']:.2f} "
-                  f"IoU={dd['iou']:.2f}  alt: {', '.join(display_name(a) for a in dd['alts'])}")
+                  f"conf={dd['iou']:.2f}  alt: {', '.join(display_name(a) for a in dd['alts'])}")
     r = resultant_vector(detected)
     if verbose:
         print(f"\n  >> VECTOR DEL HECHIZO:")
@@ -295,6 +328,8 @@ def main():
     ap.add_argument("--validate", action="store_true")
     ap.add_argument("--seal", default=None)
     ap.add_argument("--all", action="store_true")
+    ap.add_argument("--method", choices=["template", "clf"], default="template",
+                    help="template=IoU rotacional; clf=clasificador entrenado.")
     args = ap.parse_args()
 
     if args.validate:
@@ -307,13 +342,13 @@ def main():
         if not png.exists():
             raise SystemExit(f"No existe {png}")
         print(f"\n=== {display_name(args.seal)} ===")
-        decode_seal(png, vocab)
+        decode_seal(png, vocab, method=args.method)
     elif args.all:
         for d in sorted(p for p in REFS_DIR.iterdir() if p.is_dir()):
             png = d / f"{d.name}.png"
             if png.exists():
                 print(f"\n=== {display_name(d.name)} ===")
-                decode_seal(png, vocab)
+                decode_seal(png, vocab, method=args.method)
     else:
         ap.print_help()
 

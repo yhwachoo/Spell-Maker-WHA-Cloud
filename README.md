@@ -141,6 +141,30 @@ Resultados:
 > GPL v3: los símbolos en `data/wha_symbols/` conservan `LICENSE` y atribución a
 > DaviAMSilva (`ATTRIBUTION.md`). Los símbolos de la magia son de Kamome Shirahama.
 
+## Clasificador de signos entrenado (supera al template matching)
+
+El template matching se estanca y colapsa con imágenes degradadas (catálogo escaneado).
+La alternativa es un **clasificador entrenado** sobre rasgos rotacionalmente invariantes
+(`sign_features.py`) con datos aumentados y **degradados** (baja resolución + blur + ruido):
+
+```
+python train_sign_clf.py            # entrena y evalúa -> models/sign_clf.joblib
+```
+
+Resultados honestos (sobre las **mismas entradas degradadas**, escenario del catálogo):
+
+| Método | top-1 | top-3 |
+|---|---|---|
+| Template matching (IoU) | 32% | 49% |
+| **Clasificador entrenado** | **99%** | **99.8%** |
+
+> Matiz honesto: ese 99% es robustez a la *degradación* de las plantillas conocidas. La
+> generalización a un estilo de dibujo **nuevo** (cross-domain) es 44–60% top-1 — aún así
+> por encima del ~37% del matcher. Nunca se voltea en el aumento (espejar cambia el signo).
+
+El clasificador está integrado en `decode_seal.py` (`--method clf`, con fallback a
+template) y es el método por defecto en la app web.
+
 ## App web de reconocimiento (`webapp/`)
 
 Banco de pruebas visual para **ver cómo el sistema reconoce un sello**:
