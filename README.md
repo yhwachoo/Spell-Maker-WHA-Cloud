@@ -141,6 +141,25 @@ Resultados:
 > GPL v3: los símbolos en `data/wha_symbols/` conservan `LICENSE` y atribución a
 > DaviAMSilva (`ATTRIBUTION.md`). Los símbolos de la magia son de Kamome Shirahama.
 
+## App web de reconocimiento (`webapp/`)
+
+Banco de pruebas visual para **ver cómo el sistema reconoce un sello**:
+
+```
+pip install -r requirements.txt
+python webapp/app.py            # http://127.0.0.1:5000
+```
+
+- **Reconocer**: sube una imagen, **dibújala en el navegador** o elige un sello del
+  catálogo → muestra las cajas de los símbolos detectados, el signo asignado a cada
+  uno (con IoU y alternativas), el vector resultante y la descripción del efecto.
+- **Componer**: elige sigilo + signos (radio/simetría/rotación) → dibuja el sello con
+  `render_spell` y predice su comportamiento. Permite el ciclo *componer → reconocer*.
+
+> El reconocimiento por template-matching es **débil a baja resolución** (~37%
+> cross-domain); la app sirve justo para ver esa limitación e iterar hacia un
+> detector entrenado con `render_spell.py --synth`.
+
 ## Mecánica del lore
 Ver **`MECANICA.md`**: tamaño → potencia, pesos/simetría → desvío, orientación → dirección,
 y el sistema de vectores implementado en `signs.py`. Idea central: *los signos son fuerzas

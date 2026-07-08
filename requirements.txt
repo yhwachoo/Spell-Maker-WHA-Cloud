@@ -6,3 +6,5 @@ torchvision>=0.17
 numpy>=1.26
 pillow>=10.0
 scikit-learn>=1.4
+scipy>=1.11
+flask>=3.0        # app web de reconocimiento (webapp/app.py)

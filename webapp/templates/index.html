@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WHA · Reconocedor de Sellos</title>
+<style>
+  :root { --bg:#12121a; --panel:#1c1c28; --ink:#e8e8f0; --mut:#9a9ab0; --acc:#7aa2ff; --red:#e63c3c; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, sans-serif; background:var(--bg); color:var(--ink); }
+  header { padding:16px 24px; border-bottom:1px solid #2a2a3a; }
+  header h1 { margin:0; font-size:18px; } header p { margin:4px 0 0; color:var(--mut); font-size:13px; }
+  .tabs { display:flex; gap:8px; padding:12px 24px 0; }
+  .tab { padding:8px 16px; border-radius:8px 8px 0 0; background:#20202e; color:var(--mut); cursor:pointer; border:1px solid transparent; }
+  .tab.active { background:var(--panel); color:var(--ink); border-color:#2a2a3a; }
+  main { padding:20px 24px; }
+  .grid { display:grid; grid-template-columns: 360px 1fr; gap:20px; }
+  .card { background:var(--panel); border:1px solid #2a2a3a; border-radius:10px; padding:16px; }
+  h2 { font-size:14px; margin:0 0 12px; color:var(--acc); text-transform:uppercase; letter-spacing:.05em; }
+  button { background:var(--acc); color:#0a0a12; border:0; padding:9px 14px; border-radius:7px; font-weight:600; cursor:pointer; }
+  button.ghost { background:#2a2a3a; color:var(--ink); }
+  select, input[type=file], input[type=number] { width:100%; padding:8px; border-radius:6px; border:1px solid #33334a; background:#15151f; color:var(--ink); margin-bottom:10px; }
+  label { font-size:12px; color:var(--mut); display:block; margin-bottom:3px; }
+  .row { display:flex; gap:8px; align-items:center; }
+  canvas { background:#fff; border-radius:8px; touch-action:none; cursor:crosshair; display:block; }
+  img.result { max-width:100%; border-radius:8px; background:#fff; }
+  .sign-list { list-style:none; margin:0; padding:0; }
+  .sign-list li { padding:8px 10px; background:#15151f; border-radius:6px; margin-bottom:6px; font-size:13px; display:flex; justify-content:space-between; }
+  .sign-list .alts { color:var(--mut); font-size:11px; }
+  .vec { font-size:14px; line-height:1.6; }
+  .vec b { color:var(--acc); }
+  pre { white-space:pre-wrap; background:#15151f; padding:12px; border-radius:8px; font-size:12px; color:#cfe; }
+  .muted { color:var(--mut); font-size:12px; }
+  .composer-sign { border:1px solid #2a2a3a; border-radius:8px; padding:10px; margin-bottom:10px; }
+  .composer-sign .row > div { flex:1; }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Witch Hat Atelier · Reconocedor de Sellos</h1>
+  <p>Sube, dibuja o elige un sello y observa qué signos detecta y qué vector calcula. El reconocimiento por template-matching es débil a baja resolución — esta app existe para verlo e iterar.</p>
+</header>
+
+<div class="tabs">
+  <div class="tab active" data-tab="reconocer">Reconocer</div>
+  <div class="tab" data-tab="componer">Componer</div>
+</div>
+
+<main>
+  <!-- ===================== RECONOCER ===================== -->
+  <section id="reconocer" class="grid">
+    <div class="card">
+      <h2>Entrada</h2>
+      <label>1 · Elegir del catálogo</label>
+      <select id="catalog"><option value="">— cargando —</option></select>
+      <label>2 · Subir imagen</label>
+      <input type="file" id="file" accept="image/*">
+      <label>3 · Dibujar el sello</label>
+      <canvas id="pad" width="320" height="320"></canvas>
+      <div class="row" style="margin-top:8px">
+        <button id="btn-decode">Reconocer</button>
+        <button class="ghost" id="btn-clear">Limpiar</button>
+        <span class="muted" id="brush">trazo</span>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Resultado</h2>
+      <div class="grid" style="grid-template-columns:1fr 1fr; gap:16px">
+        <div><img id="out-img" class="result" alt="resultado"></div>
+        <div>
+          <div class="vec" id="out-vec"></div>
+          <h2 style="margin-top:14px">Signos detectados</h2>
+          <ul class="sign-list" id="out-signs"></ul>
+        </div>
+      </div>
+      <h2 style="margin-top:14px">Descripción</h2>
+      <pre id="out-desc">—</pre>
+    </div>
+  </section>
+
+  <!-- ===================== COMPONER ===================== -->
+  <section id="componer" class="grid hidden">
+    <div class="card">
+      <h2>Diseñar sello</h2>
+      <label>Sigilo central</label>
+      <select id="c-sigil"><option value="">(ninguno)</option></select>
+      <div id="c-signs"></div>
+      <div class="row">
+        <button class="ghost" id="c-add">+ signo</button>
+        <button id="c-render">Dibujar y predecir</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Sello generado</h2>
+      <div class="grid" style="grid-template-columns:1fr 1fr; gap:16px">
+        <div><img id="c-img" class="result" alt="sello"></div>
+        <div><div class="vec" id="c-vec"></div><pre id="c-desc" style="margin-top:12px">—</pre></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+let SIGN_OPTIONS = [];
+
+// ---- Tabs ----
+document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
+  document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+  t.classList.add('active');
+  $('#reconocer').classList.toggle('hidden', t.dataset.tab !== 'reconocer');
+  $('#componer').classList.toggle('hidden', t.dataset.tab !== 'componer');
+});
+
+// ---- Canvas dibujo ----
+const pad = $('#pad'), ctx = pad.getContext('2d');
+function clearPad(){ ctx.fillStyle='#fff'; ctx.fillRect(0,0,pad.width,pad.height); ctx.strokeStyle='#000'; ctx.lineWidth=3; ctx.lineCap='round'; ctx.lineJoin='round'; }
+clearPad();
+let drawing=false, last=null;
+function pos(e){ const r=pad.getBoundingClientRect(); const p=e.touches?e.touches[0]:e; return {x:(p.clientX-r.left)*pad.width/r.width, y:(p.clientY-r.top)*pad.height/r.height}; }
+pad.addEventListener('pointerdown', e=>{ drawing=true; last=pos(e); });
+pad.addEventListener('pointermove', e=>{ if(!drawing)return; const p=pos(e); ctx.beginPath(); ctx.moveTo(last.x,last.y); ctx.lineTo(p.x,p.y); ctx.stroke(); last=p; });
+window.addEventListener('pointerup', ()=> drawing=false);
+$('#btn-clear').onclick = clearPad;
+
+// ---- Cargar catálogo y signos ----
+fetch('/api/catalog').then(r=>r.json()).then(items=>{
+  const sel=$('#catalog'); sel.innerHTML='<option value="">— elegir sello —</option>';
+  items.forEach(i=> sel.insertAdjacentHTML('beforeend', `<option value="${i.name}">${i.label}</option>`));
+});
+fetch('/api/signs').then(r=>r.json()).then(items=>{
+  SIGN_OPTIONS = items;
+  addSignRow();
+});
+fetch('/api/sigils').then(r=>r.json()).then(items=>{
+  const sg=$('#c-sigil');
+  items.forEach(i=> sg.insertAdjacentHTML('beforeend', `<option value="${i.value}">${i.label}</option>`));
+});
+
+// ---- Reconocer ----
+function renderDecode(d){
+  if(d.error){ $('#out-desc').textContent='Error: '+d.error; return; }
+  $('#out-img').src = d.overlay;
+  const v = d.vector;
+  $('#out-vec').innerHTML = `<b>Vector:</b> ${v.compass}<br><b>Magnitud:</b> ${v.magnitude} · <b>Ángulo:</b> ${v.direction_deg}°<br>`+
+    `<span class="muted">radial:${v.is_radial} · inward:${v.has_inward} · outward:${v.has_outward} · símbolos extraídos:${d.n_extracted}</span>`;
+  const ul=$('#out-signs'); ul.innerHTML='';
+  d.symbols.forEach(s=> ul.insertAdjacentHTML('beforeend',
+    `<li><span><b>${s.name}</b> · pos ${s.angle}° · tam ${s.size} · IoU ${s.iou}<br><span class="alts">alt: ${s.alts.join(', ')}</span></span></li>`));
+  if(!d.symbols.length) ul.innerHTML='<li class="muted">ningún signo superó el umbral</li>';
+  $('#out-desc').textContent = d.description;
+}
+$('#btn-decode').onclick = async () => {
+  $('#out-desc').textContent='Reconociendo…';
+  const cat=$('#catalog').value, file=$('#file').files[0];
+  let resp;
+  if(file){ const fd=new FormData(); fd.append('file',file); resp=await fetch('/api/decode',{method:'POST',body:fd}); }
+  else if(cat){ resp=await fetch('/api/decode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({catalog:cat})}); }
+  else { resp=await fetch('/api/decode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dataurl:pad.toDataURL()})}); }
+  renderDecode(await resp.json());
+};
+
+// ---- Componer ----
+function addSignRow(){
+  const opts = SIGN_OPTIONS.map(o=>`<option value="${o.value}">${o.label}</option>`).join('');
+  const div=document.createElement('div'); div.className='composer-sign';
+  div.innerHTML = `<div class="row"><div><label>signo</label><select class="cs-name">${opts}</select></div>
+    <div><label>copias</label><input type="number" class="cs-amount" value="8" min="1"></div></div>
+    <div class="row"><div><label>radio</label><input type="number" class="cs-radius" value="330"></div>
+    <div><label>tamaño</label><input type="number" class="cs-size" value="150"></div>
+    <div><label>rotación</label><input type="number" class="cs-rot" value="0"></div></div>`;
+  $('#c-signs').appendChild(div);
+}
+$('#c-add').onclick = addSignRow;
+$('#c-render').onclick = async () => {
+  const signs=[...document.querySelectorAll('.composer-sign')].map(d=>({
+    name:d.querySelector('.cs-name').value, amount:d.querySelector('.cs-amount').value,
+    radius:d.querySelector('.cs-radius').value, size:d.querySelector('.cs-size').value,
+    rotation:d.querySelector('.cs-rot').value }));
+  $('#c-desc').textContent='Dibujando…';
+  const resp=await fetch('/api/compose',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({signs, sigil:$('#c-sigil').value||null})});
+  const d=await resp.json();
+  if(d.error){ $('#c-desc').textContent='Error: '+d.error; return; }
+  $('#c-img').src=d.image; const v=d.vector;
+  $('#c-vec').innerHTML=`<b>Vector:</b> ${v.compass}<br><b>Magnitud:</b> ${v.magnitude} · <b>Ángulo:</b> ${v.direction_deg}°`;
+  $('#c-desc').textContent=d.description;
+};
+</script>
+</body>
+</html>

@@ -132,7 +132,8 @@ def extract_symbols(path, min_area, max_comp):
         dist = math.hypot(ccx - cx, ccy - cy) / max(ring_R, 1)
         crop = img.crop((xs0, ys, xe, ye))
         comps.append({"crop": crop, "bin": compmask, "area": area,
-                      "angle": ang, "dist": round(dist, 2)})
+                      "angle": ang, "dist": round(dist, 2),
+                      "bbox": (int(xs0), int(ys), int(xe), int(ye))})
     comps.sort(key=lambda c: -c["area"])
     return comps[:max_comp], (cx, cy, ring_R)
 
