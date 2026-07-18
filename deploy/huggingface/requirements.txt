@@ -1,0 +1,8 @@
+# Dependencias de runtime para el Space (SIN torch: la app no lo necesita).
+flask>=3.0
+gunicorn>=21.0
+numpy>=1.26
+scipy>=1.11
+scikit-learn>=1.4
+pillow>=10.0
+joblib>=1.3

@@ -12,8 +12,10 @@ data/_tmp*
 data/_synth*
 data/_demo*
 
-# Modelos entrenados (regenerables)
-models/
+# Modelos entrenados (regenerables). Se versiona SOLO el clasificador de signos
+# (compacto, ~6 MB) para que el despliegue y el uso local funcionen sin reentrenar.
+models/*
+!models/sign_clf.joblib
 
 # Empaquetados
 refs.zip

@@ -233,6 +233,9 @@ def main():
     ap.add_argument("--per-template", type=int, default=140)
     ap.add_argument("--synth-seals", type=int, default=500,
                     help="Sellos sinteticos completos para extraer recortes realistas.")
+    ap.add_argument("--n-estimators", type=int, default=120, help="Arboles del bosque.")
+    ap.add_argument("--max-depth", type=int, default=18,
+                    help="Profundidad max (limita el tamano del modelo en disco).")
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
 
@@ -243,8 +246,8 @@ def main():
 
     def fit(Xtr, ytr):
         sc = StandardScaler().fit(Xtr)
-        clf = RandomForestClassifier(n_estimators=300, min_samples_leaf=2,
-                                     n_jobs=-1, random_state=args.seed)
+        clf = RandomForestClassifier(n_estimators=args.n_estimators, max_depth=args.max_depth,
+                                     min_samples_leaf=3, n_jobs=-1, random_state=args.seed)
         clf.fit(sc.transform(Xtr), ytr)
         return clf, sc
 
@@ -270,8 +273,9 @@ def main():
     # --- Modelo desplegado: plantillas + sinteticos ---
     print("\nGuardando modelo final (plantillas + sinteticos)...")
     MODELS.mkdir(exist_ok=True)
-    joblib.dump({"clf": clf_b, "scaler": sc_b, "classes": list(clf_b.classes_)}, OUT)
-    print(f"Guardado: {OUT}")
+    joblib.dump({"clf": clf_b, "scaler": sc_b, "classes": list(clf_b.classes_)}, OUT, compress=3)
+    size_mb = OUT.stat().st_size / 1e6
+    print(f"Guardado: {OUT}  ({size_mb:.1f} MB)")
 
 
 if __name__ == "__main__":
